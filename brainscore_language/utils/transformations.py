@@ -200,7 +200,8 @@ class CrossValidation(Transformation):
 
         split_scores = []
         for split_iterator, (train_indices, test_indices), done \
-                in tqdm(enumerate_done(splits), total=len(splits), desc='cross-validation'):
+            in enumerate_done(splits):
+                # in tqdm(enumerate_done(splits), total=len(splits), desc='cross-validation'):
             train_values, test_values = cross_validation_values[train_indices], cross_validation_values[test_indices]
             train_source = subset(source_assembly, train_values, dims_must_match=False)
             train_target = subset(target_assembly, train_values, dims_must_match=False)
