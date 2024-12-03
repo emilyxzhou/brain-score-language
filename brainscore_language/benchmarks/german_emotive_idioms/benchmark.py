@@ -39,29 +39,22 @@ def _build_id_from_subjects_and_voxels(voxel_subjects, voxel_nums):
 
 class GermanEmotiveIdioms(BenchmarkBase):
 
-    def __init__(self, neural_data, ceiling, metric=None, idiom_type=None):
-        num_subjects = 19
-        voxels_per_subject = 400
+    def __init__(self, neural_data, num_subjects, selected_stimuli_ids, ceiling, metric=None):
+        
+        assert neural_data.shape[1] % num_subjects == 0, 'Unequal number of voxels per subject'
+        voxels_per_subject = neural_data.shape[1] // num_subjects
         
         stimuli_file = os.path.join(file_utils.IDIOMS_DATA_PROCESSING_PATH, "stimuli.tsv")
         
-        if idiom_type is None:
-            num_stimuli = 180
-            selected_stimuli_ids = list(range(1, num_stimuli + 1)) # "Code" field
-        elif idiom_type == 'idiom':
-            num_stimuli = 90
-            selected_stimuli_ids = list(range(1, 91))
-        elif idiom_type == 'literal':
-            num_stimuli = 90
-            selected_stimuli_ids = list(range(91, 181))
-        
-        stimuli = pd.read_csv(stimuli_file, sep='\t')
+        stimuli = pd.read_csv(stimuli_file, sep='\t', encoding='utf-8')
         selected_stimuli = stimuli[stimuli['Code'].isin(selected_stimuli_ids)]
         sentences = selected_stimuli["Stimulus"].to_numpy().tolist()
+        # sentences = selected_stimuli["Translation"].to_numpy().tolist() # try English translation
+        
+        # neural_data = neural_data[:neural_data.shape[0], :voxels_per_subject]
+        # num_subjects = 1
 
         # seleted stimuli and provided neural data should be the same size
-        # import pdb
-        # pdb.set_trace()
         assert neural_data.shape[0] == len(selected_stimuli_ids)
         """
         A Neuroid Assembly (https://github.com/brain-score/brainio/blob/main/brainio/assemblies.py)
@@ -69,10 +62,12 @@ class GermanEmotiveIdioms(BenchmarkBase):
         For code compatability, the dimensions MUST be named exactly "presentation" and "neuroid",
         which correspond to the stimulus row and the neuron activation score column.
         """
-        # assign each voxel to a subject
+        # create two lists of length (num_subjects * voxels_per_subject)
+        # voxel_subjects refers to the subject number, voxel_nums refers to the voxel number within a subject
+        # i.e., if there are 20 subjects and 400 voxels per subject, index 500 will have voxel_subject=2 and voxel_nums=100
         voxel_subjects = []
         voxel_nums = []
-        for i in range(1, num_subjects + 1): # TODO: need to make this more robust/matching other code, will do after sync with Helen
+        for i in range(1, num_subjects + 1):
             voxel_subjects.extend([str(i)] * voxels_per_subject)
             voxel_nums.extend(list(range(voxels_per_subject)))
         
@@ -120,7 +115,7 @@ class GermanEmotiveIdioms(BenchmarkBase):
 
         if self.convert_to_numpy:
         # Extract numpy arrays for custom metrics
-            predictions = predictions.data  # Has shape (12, 768)
+            predictions = predictions.data 
             actual = self.data.data
         else:
             actual = self.data
@@ -196,6 +191,8 @@ class GermanEmotiveIdioms(BenchmarkBase):
                     result['similarities'][test_index] = similarity
                     
                 json.dump(result, open(os.path.join(save_path, f'literal_leftout_{literal_index}.json'), 'w'), indent=4)
+                
+    
                 
             
     

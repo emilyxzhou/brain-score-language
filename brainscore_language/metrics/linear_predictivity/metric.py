@@ -3,6 +3,7 @@ import scipy.stats
 from sklearn.linear_model import LinearRegression
 from sklearn.preprocessing import scale
 from scipy.spatial.distance import cosine
+import warnings
 
 from brainio.assemblies import NeuroidAssembly, array_is_element, DataAssembly
 from brainio.assemblies import walk_coords
@@ -108,10 +109,20 @@ class XarrayCorrelation:
         assert len(neuroid_dims) == 1
         correlations = []
         for i, coord_value in enumerate(target[self._neuroid_coord].values):
-            target_neuroids = target.isel(**{neuroid_dims[0]: i})  # `isel` is about 10x faster than `sel`
-            prediction_neuroids = prediction.isel(**{neuroid_dims[0]: i})
-            r, p = self._correlation(target_neuroids, prediction_neuroids)
-            correlations.append(r)
+            with warnings.catch_warnings(record=True) as caught_warnings:
+                warnings.simplefilter("always")  # Catch all warnings
+                target_neuroids = target.isel(**{neuroid_dims[0]: i})  # `isel` is about 10x faster than `sel`
+                prediction_neuroids = prediction.isel(**{neuroid_dims[0]: i})
+                r, p = self._correlation(target_neuroids, prediction_neuroids)
+                
+                # for warning in caught_warnings:
+                    # print(warning)
+                    # import pdb; pdb.set_trace()  # Trigger pdb
+            
+            if np.isnan(r):
+                correlations.append(0)
+            else:
+                correlations.append(r)
         # package
         result = Score(correlations,
                        coords={coord: (dims, values)
@@ -134,6 +145,7 @@ class CrossRegressedCorrelation(Metric):
         return self.cross_validation(assembly1, assembly2, apply=self.apply, aggregate=self.aggregate)
 
     def apply(self, source_train, target_train, source_test, target_test):
+        
         self.regression.fit(source_train, target_train)
         prediction = self.regression.predict(source_test)
         score = self.correlation(prediction, target_test)

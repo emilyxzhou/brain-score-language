@@ -19,7 +19,7 @@ dependencies = [
     "scikit-learn",
     # model_helpers dependencies
     "torch>=1.9.1",
-    "transformers>=4.11.3",
+    "transformers>=4.35.0",
     "gensim",
     "joblib",
     # submission dependencies

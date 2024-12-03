@@ -12,6 +12,9 @@ def prepare_context(context_parts: List[str]) -> str:
 
     Note that this implementation is English-specific.
     """
+    
+    if type(context_parts) == str: # turn into list
+        context_parts = [context_parts]
 
     # Drop empty parts -- otherwise we will create double-spaces in the result.
     context_parts = [part for part in context_parts if part.strip() != ""]

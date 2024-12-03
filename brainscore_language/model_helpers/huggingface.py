@@ -83,14 +83,15 @@ class HuggingfaceSubject(ArtificialSubject):
         output = {'behavior': [], 'neural': []}
         number_of_tokens = 0
 
-        text_iterator = tqdm(text, desc='digest text') if len(text) > 100 else text  # show progress bar if many parts
+        text_iterator = tqdm(text, desc='digest text') if len(text) > 200 else text  # show progress bar if many parts
         for part_number, text_part in enumerate(text_iterator):
             # prepare string representation of context
-            context = prepare_context(text[:part_number + 1])
+            # context = _prepare_context(text[:part_number + 1])
+            # context = _prepare_context(text[max(0, part_number - 5):part_number + 1])
+            context = text_part
             # TODO: address this. Current implementation assumes all text parts are concantentated. 
             # We only want to deal with individual sentences.
-            # context_tokens, number_of_tokens = self._tokenize(context, number_of_tokens)
-            context_tokens, number_of_tokens = self._tokenize(text_part, number_of_tokens)
+            context_tokens, number_of_tokens = self._tokenize(context, number_of_tokens)
 
             # prepare recording hooks
             hooks, layer_representations = self._setup_hooks()
@@ -126,21 +127,6 @@ class HuggingfaceSubject(ArtificialSubject):
         output['neural'] = xr.concat(output['neural'], dim='presentation').sortby('part_number') \
             if output['neural'] else None
         return output
-
-    def _prepare_context(self, context_parts):
-        """
-        Prepare a single string representation of a (possibly partial) input context
-        for the model.
-        """
-        # Drop empty parts.
-        context_parts = [part for part in context_parts if part != ""]
-
-        context = ' '.join(context_parts)
-
-        # Remove erroneous spaces before punctuation.
-        context = re.sub(r'\s+([.,!?;:])', r'\1', context)
-
-        return context
 
     def _tokenize(self, context, num_previous_context_tokens: int) -> Tuple[BatchEncoding, int]:
         """
