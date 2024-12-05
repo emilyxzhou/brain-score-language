@@ -13,6 +13,9 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BatchEncoding
 from transformers.modeling_outputs import CausalLMOutput
 from typing import Union, List, Tuple, Dict, Callable
 
+import transformers
+transformers.logging.set_verbosity_error()
+
 from brainio.assemblies import DataAssembly, NeuroidAssembly, BehavioralAssembly
 from brainscore_language.artificial_subject import ArtificialSubject
 from brainscore_language.model_helpers.preprocessing import prepare_context
@@ -86,11 +89,12 @@ class HuggingfaceSubject(ArtificialSubject):
         text_iterator = tqdm(text, desc='digest text') if len(text) > 200 else text  # show progress bar if many parts
         for part_number, text_part in enumerate(text_iterator):
             # prepare string representation of context
-            # context = _prepare_context(text[:part_number + 1])
-            # context = _prepare_context(text[max(0, part_number - 5):part_number + 1])
-            context = text_part
-            # TODO: address this. Current implementation assumes all text parts are concantentated. 
-            # We only want to deal with individual sentences.
+            use_context = False
+            if use_context:
+                context = prepare_context(text[:part_number + 1])
+            else:
+                context = prepare_context([text_part]) # only use the current stimulus
+            # TODO: make use_context an optional argument (default is True for existing brainscore repo, and False for our project)
             context_tokens, number_of_tokens = self._tokenize(context, number_of_tokens)
 
             # prepare recording hooks
@@ -150,7 +154,7 @@ class HuggingfaceSubject(ArtificialSubject):
         return self._tokenize_overflow_aware(context, num_previous_context_tokens)
 
     def _tokenize_overflow_aware(self, context, num_previous_context_tokens: int) -> Tuple[BatchEncoding, int]:
-        context_tokens = self.tokenizer(context, truncation=True, return_tensors="pt",
+        context_tokens = self.tokenizer(context, return_tensors="pt",
                                         return_overflowing_tokens=self._tokenizer_returns_overflow)
 
         # keep track of tokens in current `text_part`

@@ -96,7 +96,6 @@ class _Pereira2018ExperimentLinear(BenchmarkBase):
             passage_predictions['stimulus_id'] = 'presentation', passage_stimuli['stimulus_id'].values
             predictions.append(passage_predictions)
         predictions = xr.concat(predictions, dim='presentation')
-        import pdb; pdb.set_trace()
         raw_score = self.metric(predictions, self.data)
         score = ceiling_normalize(raw_score, self.ceiling)
         return score

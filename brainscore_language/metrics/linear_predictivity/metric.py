@@ -203,3 +203,60 @@ def linear_pearsonr(*args, regression_kwargs=None, correlation_kwargs=None, **kw
     regression = linear_regression(regression_kwargs or {})
     correlation = pearsonr_correlation(correlation_kwargs or {})
     return CrossRegressedCorrelation(*args, regression=regression, correlation=correlation, **kwargs)
+
+# does not apply median across neuroids
+def linear_pearsonr_unaveraged(*args, regression_kwargs=None, correlation_kwargs=None, **kwargs):
+    regression = linear_regression(regression_kwargs or {})
+    correlation = pearsonr_correlation(correlation_kwargs or {})
+    return CrossRegressedCorrelationUnaveraged(*args, regression=regression, correlation=correlation, **kwargs)
+
+class CrossRegressedCorrelationUnaveraged(Metric):
+    def __init__(self, regression, correlation, crossvalidation_kwargs=None, store_regression_weights=False):
+        crossvalidation_defaults = dict(train_size=.9, test_size=None)
+        crossvalidation_kwargs = {**crossvalidation_defaults, **(crossvalidation_kwargs or {})}
+
+        self.cross_validation = CrossValidation(**crossvalidation_kwargs)
+        self.regression = regression
+        self.correlation = correlation
+        self.store_regression_weights = store_regression_weights
+
+    def __call__(self, assembly1: DataAssembly, assembly2: DataAssembly, train_regression=True) -> Score:
+        self.train_regression = train_regression
+        result = self.cross_validation(assembly1, assembly2, apply=self.apply, aggregate=self.aggregate)
+        
+        # get individual neuroid brain scores, median'd over the validation splits
+        data = np.median(result.attrs['raw'].data, axis=0)
+        
+        if self.train_regression: # train on entire data (not just train splits) so future calls can use the best regression
+            self.regression.fit(assembly1, assembly2)
+        return data.tolist()
+
+    def apply(self, source_train, target_train, source_test, target_test):
+        if self.train_regression:
+            self.regression.fit(source_train, target_train)
+        prediction = self.regression.predict(source_test)
+        score = self.correlation(prediction, target_test)
+        if self.store_regression_weights:
+            self.attach_regression_weights(score=score, source_test=source_test, target_test=target_test)
+        return score
+
+    def attach_regression_weights(self, score, source_test, target_test):
+        source_weight_dim = source_test.dims[-1]
+        target_weight_dim = target_test.dims[-1]
+        coef = DataAssembly(self.regression._regression.coef_,
+                            coords={
+                                **{f'source_{coord}': (f'source_{source_weight_dim}', values)
+                                   for coord, dims, values in walk_coords(source_test[source_weight_dim])},
+                                **{f'target_{coord}': (f'target_{target_weight_dim}', values)
+                                   for coord, dims, values in walk_coords(target_test[target_weight_dim])},
+                            },
+                            dims=[f'source_{source_weight_dim}', f'target_{target_weight_dim}'])
+        score.attrs['raw_regression_coef'] = coef
+        intercept = DataAssembly(self.regression._regression.intercept_,
+                                 coords={f'target_{coord}': (f'target_{target_weight_dim}', values)
+                                         for coord, dims, values in walk_coords(target_test[target_weight_dim])},
+                                 dims=[f'target_{target_weight_dim}'])
+        score.attrs['raw_regression_intercept'] = intercept
+
+    def aggregate(self, scores):
+        return scores.median(dim='neuroid')

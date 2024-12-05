@@ -41,6 +41,27 @@ class GermanEmotiveIdioms(BenchmarkBase):
 
     def __init__(self, neural_data, num_subjects, selected_stimuli_ids, ceiling, metric=None):
         
+        self.load_data_into_assembly(neural_data, num_subjects, selected_stimuli_ids)
+
+        if metric is None:
+            self.metric = load_metric('linear_pearsonr_unaveraged')
+        else:
+            self.metric = metric
+
+        super(GermanEmotiveIdioms, self).__init__(
+            identifier="GermanEmotiveIdioms",
+            version=1,
+            parent='GermanEmotiveIdioms',
+            ceiling=ceiling
+        )
+        
+    def load_data_into_assembly(self, neural_data, num_subjects, selected_stimuli_ids):
+        """
+        Loads a numpy array into a Neuroid Assembly (https://github.com/brain-score/brainio/blob/main/brainio/assemblies.py).
+        A Neuroid Assembly is just a wrapper for an XArray, which itself is basically a numpy array with metadata.
+        For code compatability, the dimensions MUST be named exactly "presentation" and "neuroid",
+        which correspond to the stimulus row and the neuron activation score column.
+        """
         assert neural_data.shape[1] % num_subjects == 0, 'Unequal number of voxels per subject'
         voxels_per_subject = neural_data.shape[1] // num_subjects
         
@@ -51,17 +72,8 @@ class GermanEmotiveIdioms(BenchmarkBase):
         sentences = selected_stimuli["Stimulus"].to_numpy().tolist()
         # sentences = selected_stimuli["Translation"].to_numpy().tolist() # try English translation
         
-        # neural_data = neural_data[:neural_data.shape[0], :voxels_per_subject]
-        # num_subjects = 1
-
         # seleted stimuli and provided neural data should be the same size
         assert neural_data.shape[0] == len(selected_stimuli_ids)
-        """
-        A Neuroid Assembly (https://github.com/brain-score/brainio/blob/main/brainio/assemblies.py)
-        is just a wrapper for an XArray, which itself is basically a numpy array with metadata.
-        For code compatability, the dimensions MUST be named exactly "presentation" and "neuroid",
-        which correspond to the stimulus row and the neuron activation score column.
-        """
         # create two lists of length (num_subjects * voxels_per_subject)
         # voxel_subjects refers to the subject number, voxel_nums refers to the voxel number within a subject
         # i.e., if there are 20 subjects and 400 voxels per subject, index 500 will have voxel_subject=2 and voxel_nums=100
@@ -72,7 +84,7 @@ class GermanEmotiveIdioms(BenchmarkBase):
             voxel_nums.extend(list(range(voxels_per_subject)))
         
         neuroid_ids = _build_id_from_subjects_and_voxels(voxel_subjects, voxel_nums)
-        self.data = NeuroidAssembly(
+        data = NeuroidAssembly(
             neural_data, 
             coords={
                 'stimulus_num': ('presentation', selected_stimuli_ids),
@@ -86,111 +98,26 @@ class GermanEmotiveIdioms(BenchmarkBase):
             dims=['presentation', 'neuroid']
         )
 
-        self.data.name = 'data'
-        self.data.attrs['identifier'] = 'german_emotive_idioms'
+        data.name = 'data'
+        data.attrs['identifier'] = 'german_emotive_idioms'
+        self.data = data
+        
 
-        if metric is None:
-            self.metric = load_metric('linear_pearsonr')
-            self.convert_to_numpy = False
-        else:
-            self.metric = metric
-            self.convert_to_numpy = True
-
-        super(GermanEmotiveIdioms, self).__init__(
-            identifier="GermanEmotiveIdioms",
-            version=1,
-            parent='GermanEmotiveIdioms',
-            ceiling=ceiling
-        )
-
-    def __call__(self, candidate: ArtificialSubject, layer_num=None, save_folder=None) -> Score:
+    def __call__(self, candidate: ArtificialSubject, train_regression=True) -> Score:
         candidate.start_neural_recording(
             recording_target=ArtificialSubject.RecordingTarget.language_system,
             recording_type=ArtificialSubject.RecordingType.fMRI
         )
         stimuli = self.data['stimulus']
-        # pdb.set_trace()
         predictions = candidate.digest_text(stimuli.values)['neural']
         predictions['stimulus_id'] = 'presentation', stimuli['stimulus_id'].values
 
-        if self.convert_to_numpy:
-        # Extract numpy arrays for custom metrics
-            predictions = predictions.data 
-            actual = self.data.data
-        else:
-            actual = self.data
+        actual = self.data
         
-        # normal metric
-        if not isinstance(self.metric, NeuralCosineSimilarity):
-            raw_score = self.metric(predictions, actual)
-            score = ceiling_normalize(raw_score, self.ceiling)
-            return score
-        
-        # neural cosine similarity code. Save values to specific folder.
-        # TODO: rewrite the code so that it's better integrated like the other metrics.
-        else:
-            save_path = os.path.join(file_utils.NEURAL_COSINE_SAVE_PATH if save_folder is None else save_folder, f'layer_{str(layer_num)}')
-            os.makedirs(save_path, exist_ok=True)
-            
-            
-            idiom_indices = list(range(1, 91))
-            literal_indices = list(range(91, 181))
-            
-            # idiom-trained
-            for idiom_index in tqdm(idiom_indices):
-                train_indices = [index for index in idiom_indices if index != idiom_index]
-                test_indices = literal_indices + [idiom_index]
-                
-                def z(items): # zero-index a one-indexed list
-                    return [item - 1 for item in items]
-                
-                similarities = self.metric(
-                    predictions[z(train_indices)],
-                    actual[z(train_indices)],
-                    predictions[z(test_indices)],
-                    actual[z(test_indices)]
-                )
-                
-                result = {
-                    'train_type': 'idiom',
-                    'left_out_index': idiom_index,
-                    'train_indices': train_indices,
-                    'test_indices': test_indices,
-                    'similarities': {}
-                }
-                for test_index, similarity in zip(test_indices, similarities):
-                    similarity = round(float(similarity), 3)
-                    result['similarities'][test_index] = similarity
-                    
-                json.dump(result, open(os.path.join(save_path, f'idiom_leftout_{idiom_index}.json'), 'w'), indent=4)
-                
-            # literal-trained
-            for literal_index in tqdm(literal_indices):
-                train_indices = [index for index in literal_indices if index != literal_index]
-                test_indices = idiom_indices + [literal_index]
-                
-                def z(items): # zero-index a one-indexed list
-                    return [item - 1 for item in items]
-                
-                similarities = self.metric(
-                    predictions[z(train_indices)],
-                    actual[z(train_indices)],
-                    predictions[z(test_indices)],
-                    actual[z(test_indices)]
-                )
-                
-                result = {
-                    'train_type': 'literal',
-                    'left_out_index': literal_index,
-                    'train_indices': train_indices,
-                    'test_indices': test_indices,
-                    'similarities': {}
-                }
-                for test_index, similarity in zip(test_indices, similarities):
-                    similarity = round(float(similarity), 3)
-                    result['similarities'][test_index] = similarity
-                    
-                json.dump(result, open(os.path.join(save_path, f'literal_leftout_{literal_index}.json'), 'w'), indent=4)
+        raw_score = self.metric(predictions, actual, train_regression=train_regression)
+        # score = ceiling_normalize(raw_score, self.ceiling)
+        score = [raw / self.ceiling.item() for raw in raw_score]
+        return score
                 
     
                 
